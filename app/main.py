@@ -37,9 +37,12 @@ app = FastAPI(
     description=(
         "Register methods (allowed charges 1-3, non-negative mass error) and "
         "runs (1-12 peaks), revise both under optimistic revisions, and submit "
-        "analyses that compute the minimum-group isotope partition."
+        "analyses that compute the minimum-group isotope partition. Every "
+        "committed run revision keeps an immutable peak-table snapshot; "
+        "GET /analyses/{analysis_id}/peak-table-changes replays the per-revision "
+        "change chain since an analysis for QC recompute decisions."
     ),
-    version="1.0.0",
+    version="1.1.0",
 )
 db = Database(DB_PATH)
 
@@ -203,3 +206,18 @@ async def get_analysis(analysis_id: str) -> dict:
     if stored is None:
         raise NotFound(f"analysis {analysis_id!r} does not exist")
     return stored
+
+
+@app.get("/analyses/{analysis_id}/peak-table-changes", tags=["analyses"])
+async def get_peak_table_changes(analysis_id: str) -> dict:
+    """Change chain of the analysed run's peak table since the analysis.
+
+    Starts from the peak table sealed into the analysis and lists, for every
+    committed run revision since, the peaks added, removed and re-m/z'd (by
+    peak ID, with before/after values) — each revision separately, never
+    collapsed into a net difference.  ``current_revision``/``current_peaks``
+    are read in the same committed state as the chain itself.  Revision
+    ranges whose snapshots were never recorded (runs that pre-date snapshot
+    persistence) are returned as explicit untraceable gaps.
+    """
+    return db.get_peak_table_chain(analysis_id)
